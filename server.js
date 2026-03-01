@@ -2,23 +2,13 @@ require("dotenv").config();
 const express = require("express");
 const admin = require("firebase-admin");
 const jwt = require("jsonwebtoken");
-const cors = require("cors");
-const helmet = require("helmet");
-const rateLimit = require("express-rate-limit");
 const TelegramBot = require("node-telegram-bot-api");
+const crypto = require("crypto");
 
 const app = express();
-
-// ================= SECURITY =================
-app.use(helmet());
-app.use(cors());
 app.use(express.json());
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100
-}));
 
-// ================= FIREBASE INIT (ENV METHOD) =================
+// ================= FIREBASE INIT =================
 admin.initializeApp({
   credential: admin.credential.cert({
     type: process.env.FIREBASE_TYPE,
@@ -36,161 +26,177 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
-// ================= TELEGRAM BOT (WEBHOOK MODE) =================
+// ================= TELEGRAM BOT =================
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN);
-
-// Telegram webhook endpoint
 app.post("/bot", (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// ================= LICENSE ACTIVATE =================
-app.post("/activate", async (req, res) => {
-  try {
-    const { licenseKey, deviceId } = req.body;
+const ADMIN_ID = process.env.ADMIN_TELEGRAM_ID;
+let userStates = {};
 
-    if (!licenseKey || !deviceId)
-      return res.status(400).json({ error: "Missing data" });
-
-    const ref = db.collection("licenses").doc(licenseKey);
-    const snap = await ref.get();
-
-    if (!snap.exists)
-      return res.status(404).json({ error: "Invalid license" });
-
-    const data = snap.data();
-
-    if (data.status !== "active")
-      return res.status(403).json({ error: "License disabled" });
-
-    if (new Date() > data.expiryDate.toDate())
-      return res.status(403).json({ error: "License expired" });
-
-    let devices = data.devices || [];
-
-    if (!devices.includes(deviceId)) {
-      if (devices.length >= data.maxDevices)
-        return res.status(403).json({ error: "Device limit reached" });
-
-      devices.push(deviceId);
-      await ref.update({ devices });
+// ================= START MENU =================
+function mainMenu(chatId) {
+  bot.sendMessage(chatId, "📊 SaaS Admin Panel", {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "➕ Create License", callback_data: "create_license" }],
+        [{ text: "🔍 Manage License", callback_data: "manage_license" }],
+        [{ text: "📈 View Stats", callback_data: "stats" }]
+      ]
     }
+  });
+}
 
-    const token = jwt.sign(
-      { licenseKey, deviceId },
-      process.env.JWT_SECRET,
-      { expiresIn: "30d" }
+// ================= CALLBACK HANDLER =================
+bot.on("callback_query", async (query) => {
+
+  if (query.from.id.toString() !== ADMIN_ID)
+    return bot.answerCallbackQuery(query.id, { text: "Unauthorized" });
+
+  const chatId = query.message.chat.id;
+  const data = query.data;
+
+  if (data === "create_license") {
+    userStates[chatId] = { step: "ask_name" };
+    bot.sendMessage(chatId, "Enter Customer Name:");
+  }
+
+  if (data === "manage_license") {
+    userStates[chatId] = { step: "manage_key" };
+    bot.sendMessage(chatId, "Enter License Key to Manage:");
+  }
+
+  if (data.startsWith("validity_")) {
+    const months = parseInt(data.split("_")[1]);
+    const state = userStates[chatId];
+
+    const expiry = new Date();
+    expiry.setMonth(expiry.getMonth() + months);
+
+    const licenseKey = "LIC-" + crypto.randomBytes(4).toString("hex").toUpperCase();
+
+    await db.collection("licenses").doc(licenseKey).set({
+      name: state.name,
+      contact: state.contact,
+      plan: `${months} Month`,
+      expiryDate: expiry,
+      maxDevices: 1,
+      devices: [],
+      status: "active",
+      createdAt: new Date()
+    });
+
+    bot.sendMessage(chatId,
+      `✅ License Created\n\n` +
+      `Name: ${state.name}\n` +
+      `Contact: ${state.contact}\n` +
+      `Plan: ${months} Month\n` +
+      `License Key: ${licenseKey}`
     );
 
-    res.json({
-      message: "Activated successfully",
-      token,
-      plan: data.plan
-    });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
+    delete userStates[chatId];
+    mainMenu(chatId);
   }
 });
 
-// ================= LICENSE VALIDATE =================
-app.post("/validate", async (req, res) => {
-  try {
-    const { token } = req.body;
+// ================= MESSAGE HANDLER =================
+bot.on("message", async (msg) => {
 
-    if (!token)
-      return res.status(400).json({ error: "Token missing" });
+  if (msg.from.id.toString() !== ADMIN_ID)
+    return;
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  const chatId = msg.chat.id;
+  const state = userStates[chatId];
 
-    const snap = await db.collection("licenses")
-      .doc(decoded.licenseKey).get();
+  if (!state) {
+    mainMenu(chatId);
+    return;
+  }
 
-    if (!snap.exists)
-      return res.status(403).json({ error: "Invalid license" });
+  if (state.step === "ask_name") {
+    state.name = msg.text;
+    state.step = "ask_contact";
+    bot.sendMessage(chatId, "Enter Contact Number:");
+    return;
+  }
+
+  if (state.step === "ask_contact") {
+    state.contact = msg.text;
+    state.step = "choose_validity";
+
+    bot.sendMessage(chatId, "Select Validity:", {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "1 Month", callback_data: "validity_1" },
+            { text: "2 Months", callback_data: "validity_2" }
+          ],
+          [
+            { text: "3 Months", callback_data: "validity_3" }
+          ]
+        ]
+      }
+    });
+    return;
+  }
+
+  if (state.step === "manage_key") {
+    const key = msg.text;
+    const snap = await db.collection("licenses").doc(key).get();
+
+    if (!snap.exists) {
+      bot.sendMessage(chatId, "❌ License Not Found");
+      return mainMenu(chatId);
+    }
 
     const data = snap.data();
 
-    if (data.status !== "active")
-      return res.status(403).json({ error: "Disabled" });
+    bot.sendMessage(chatId,
+      `📄 License Info\n\n` +
+      `Name: ${data.name}\n` +
+      `Contact: ${data.contact}\n` +
+      `Plan: ${data.plan}\n` +
+      `Status: ${data.status}\n` +
+      `Devices: ${data.devices.length}`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🔄 Reset Device", callback_data: "reset_" + key }],
+            [{ text: "🚫 Disable", callback_data: "disable_" + key }]
+          ]
+        }
+      }
+    );
 
-    if (new Date() > data.expiryDate.toDate())
-      return res.status(403).json({ error: "Expired" });
-
-    if (!data.devices.includes(decoded.deviceId))
-      return res.status(403).json({ error: "Unauthorized device" });
-
-    res.json({
-      valid: true,
-      plan: data.plan,
-      expiry: data.expiryDate
-    });
-
-  } catch (err) {
-    res.status(403).json({ error: "Invalid token" });
+    delete userStates[chatId];
   }
 });
 
-// ================= TELEGRAM ADMIN COMMANDS =================
-bot.on("message", async (msg) => {
+// ================= RESET & DISABLE =================
+bot.on("callback_query", async (query) => {
+  const chatId = query.message.chat.id;
+  const data = query.data;
 
-  if (msg.from.id.toString() !== process.env.ADMIN_TELEGRAM_ID)
-    return bot.sendMessage(msg.chat.id, "Unauthorized");
+  if (data.startsWith("reset_")) {
+    const key = data.split("_")[1];
+    await db.collection("licenses").doc(key).update({ devices: [] });
+    bot.sendMessage(chatId, "🔄 Device Reset Done");
+  }
 
-  const args = msg.text.split(" ");
-
-  try {
-
-    // /create LICENSE 30
-    if (args[0] === "/create") {
-      const key = args[1];
-      const days = parseInt(args[2]);
-
-      const expiry = new Date();
-      expiry.setDate(expiry.getDate() + days);
-
-      await db.collection("licenses").doc(key).set({
-        plan: "custom",
-        expiryDate: expiry,
-        maxDevices: 1,
-        devices: [],
-        status: "active",
-        createdAt: new Date()
-      });
-
-      bot.sendMessage(msg.chat.id, `License ${key} created`);
-    }
-
-    // /disable LICENSE
-    if (args[0] === "/disable") {
-      await db.collection("licenses")
-        .doc(args[1])
-        .update({ status: "disabled" });
-
-      bot.sendMessage(msg.chat.id, "License disabled");
-    }
-
-    // /reset LICENSE
-    if (args[0] === "/reset") {
-      await db.collection("licenses")
-        .doc(args[1])
-        .update({ devices: [] });
-
-      bot.sendMessage(msg.chat.id, "Device list reset");
-    }
-
-  } catch (err) {
-    bot.sendMessage(msg.chat.id, "Error processing command");
+  if (data.startsWith("disable_")) {
+    const key = data.split("_")[1];
+    await db.collection("licenses").doc(key).update({ status: "disabled" });
+    bot.sendMessage(chatId, "🚫 License Disabled");
   }
 });
 
 // ================= ROOT =================
 app.get("/", (req, res) => {
-  res.send("SaaS License Server Running");
+  res.send("SaaS Admin Server Running");
 });
 
 app.listen(process.env.PORT, () => {
-  console.log("Server running on port " + process.env.PORT);
+  console.log("Server running...");
 });
