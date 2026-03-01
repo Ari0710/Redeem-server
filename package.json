@@ -1,22 +1,22 @@
 {
-  "name": "Redeem-Bot-Server",
+  "name": "license-server",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "SaaS License Server with Telegram Admin",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
-    "cors": "^2.8.6",
-    "dotenv": "^17.3.1",
-    "express": "^5.2.1",
-    "express-rate-limit": "^8.2.1",
-    "firebase-admin": "^13.7.0",
-    "helmet": "^8.1.0",
-    "jsonwebtoken": "^9.0.3"
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.3.0",
+    "firebase-admin": "^12.1.1",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "node-telegram-bot-api": "^0.64.0"
   }
 }
