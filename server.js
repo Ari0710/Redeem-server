@@ -17,8 +17,8 @@ app.use(rateLimit({
   max: 100
 }));
 
-// ================= FIREBASE INIT =================
-const serviceAccount = require("./config/serviceAccountKey.json");
+// ===== FIREBASE INIT FROM ENV =====
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
@@ -26,32 +26,32 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
-// ================= TELEGRAM BOT INIT =================
+// ===== TELEGRAM BOT (WEBHOOK MODE) =====
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN);
 
-// Webhook endpoint
 app.post("/bot", (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// ================= LICENSE ACTIVATE =================
+// ===== ACTIVATE LICENSE =====
 app.post("/activate", async (req, res) => {
   try {
     const { licenseKey, deviceId } = req.body;
 
-    const licenseRef = db.collection("licenses").doc(licenseKey);
-    const snap = await licenseRef.get();
+    const ref = db.collection("licenses").doc(licenseKey);
+    const snap = await ref.get();
 
-    if (!snap.exists) return res.status(404).json({ error: "Invalid license" });
+    if (!snap.exists)
+      return res.status(404).json({ error: "Invalid license" });
 
     const data = snap.data();
 
     if (data.status !== "active")
-      return res.status(403).json({ error: "License disabled" });
+      return res.status(403).json({ error: "Disabled" });
 
     if (new Date() > data.expiryDate.toDate())
-      return res.status(403).json({ error: "License expired" });
+      return res.status(403).json({ error: "Expired" });
 
     let devices = data.devices || [];
 
@@ -60,7 +60,7 @@ app.post("/activate", async (req, res) => {
         return res.status(403).json({ error: "Device limit reached" });
 
       devices.push(deviceId);
-      await licenseRef.update({ devices });
+      await ref.update({ devices });
     }
 
     const token = jwt.sign(
@@ -76,7 +76,7 @@ app.post("/activate", async (req, res) => {
   }
 });
 
-// ================= LICENSE VALIDATE =================
+// ===== VALIDATE LICENSE =====
 app.post("/validate", async (req, res) => {
   try {
     const { token } = req.body;
@@ -86,7 +86,8 @@ app.post("/validate", async (req, res) => {
     const snap = await db.collection("licenses")
       .doc(decoded.licenseKey).get();
 
-    if (!snap.exists) return res.status(403).json({ error: "Invalid" });
+    if (!snap.exists)
+      return res.status(403).json({ error: "Invalid" });
 
     const data = snap.data();
 
@@ -106,16 +107,14 @@ app.post("/validate", async (req, res) => {
   }
 });
 
-// ================= TELEGRAM ADMIN COMMANDS =================
+// ===== TELEGRAM ADMIN COMMANDS =====
 bot.on("message", async (msg) => {
 
   if (msg.from.id.toString() !== process.env.ADMIN_TELEGRAM_ID)
     return bot.sendMessage(msg.chat.id, "Unauthorized");
 
-  const text = msg.text;
-  const args = text.split(" ");
+  const args = msg.text.split(" ");
 
-  // /create LICENSE 30
   if (args[0] === "/create") {
     const key = args[1];
     const days = parseInt(args[2]);
@@ -135,7 +134,6 @@ bot.on("message", async (msg) => {
     bot.sendMessage(msg.chat.id, `License ${key} created`);
   }
 
-  // /disable LICENSE
   if (args[0] === "/disable") {
     await db.collection("licenses").doc(args[1])
       .update({ status: "disabled" });
@@ -143,7 +141,6 @@ bot.on("message", async (msg) => {
     bot.sendMessage(msg.chat.id, "License disabled");
   }
 
-  // /reset LICENSE
   if (args[0] === "/reset") {
     await db.collection("licenses").doc(args[1])
       .update({ devices: [] });
