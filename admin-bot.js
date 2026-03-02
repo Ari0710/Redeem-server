@@ -15,8 +15,8 @@ import {
 } from 'firebase/firestore';
 
 // Get environment variables
-const BOT_TOKEN = process.env.BOT_TOKEN || '8218477940:AAHbqqGRrKqgTHw3kGOlAHtYpZbTZNQmq_8';
-const ADMIN_ID = process.env.ADMIN_ID || '8135419733';
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const ADMIN_ID = process.env.ADMIN_ID;
 
 // Firebase config from environment variables
 const firebaseConfig = {
