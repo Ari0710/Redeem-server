@@ -313,7 +313,10 @@ bot.action(/custom:(.+)/, async (ctx) => {
   const email = ctx.match[1];
   
   // Store email in session for next message
-  ctx.session = { customApproveEmail: email };
+  if (!ctx.session) {
+    ctx.session = {};
+  }
+  ctx.session.customApproveEmail = email;
   
   ctx.editMessageText(
     `Enter number of days for custom license:\n\nExample: 45`,
@@ -328,7 +331,7 @@ bot.action(/custom:(.+)/, async (ctx) => {
 
 // Handle custom days input
 bot.on('text', async (ctx) => {
-  if (!isAdmin(ctx) || !ctx.session?.customApproveEmail) return;
+  if (!isAdmin(ctx) || !ctx.session || !ctx.session.customApproveEmail) return;
   
   const email = ctx.session.customApproveEmail;
   const days = parseInt(ctx.message.text);
@@ -390,7 +393,9 @@ bot.on('text', async (ctx) => {
     );
     
     // Clear session
-    delete ctx.session.customApproveEmail;
+    if (ctx.session) {
+      delete ctx.session.customApproveEmail;
+    }
   } catch (error) {
     ctx.reply('Error: ' + error.message);
   }
@@ -468,8 +473,13 @@ bot.action(/confirm_reject:(.+)/, async (ctx) => {
 bot.action('users', async (ctx) => {
   if (!isAdmin(ctx)) return adminOnly(ctx);
   
+  // Initialize session if not present
+  if (!ctx.session) {
+    ctx.session = {};
+  }
+  
   // Set default page to 0 if not set
-  if (!ctx.session.userPage) {
+  if (typeof ctx.session.userPage !== 'number') {
     ctx.session.userPage = 0;
   }
   
@@ -545,6 +555,15 @@ bot.action('users', async (ctx) => {
 bot.action('prev_users', async (ctx) => {
   if (!isAdmin(ctx)) return adminOnly(ctx);
   
+  // Initialize session if not present
+  if (!ctx.session) {
+    ctx.session = {};
+  }
+  
+  if (typeof ctx.session.userPage !== 'number') {
+    ctx.session.userPage = 0;
+  }
+  
   if (ctx.session.userPage > 0) {
     ctx.session.userPage--;
   }
@@ -566,6 +585,15 @@ bot.action('prev_users', async (ctx) => {
 // Next page callback
 bot.action('next_users', async (ctx) => {
   if (!isAdmin(ctx)) return adminOnly(ctx);
+  
+  // Initialize session if not present
+  if (!ctx.session) {
+    ctx.session = {};
+  }
+  
+  if (typeof ctx.session.userPage !== 'number') {
+    ctx.session.userPage = 0;
+  }
   
   // Get total users to calculate max pages
   const snapshot = await getDocs(collection(db, 'users'));
