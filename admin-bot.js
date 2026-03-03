@@ -1,4 +1,4 @@
-import { Telegraf, Markup, session } from 'telegraf';
+import { Telegraf, Markup } from 'telegraf';
 import express from 'express';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -35,8 +35,20 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const bot = new Telegraf(BOT_TOKEN);
 
-// Use session middleware
-bot.use(session());
+// Simple in-memory session storage
+const userSessions = new Map();
+
+// Simple session middleware
+bot.use((ctx, next) => {
+  const userId = ctx.from?.id;
+  if (userId) {
+    if (!userSessions.has(userId)) {
+      userSessions.set(userId, {});
+    }
+    ctx.session = userSessions.get(userId);
+  }
+  return next();
+});
 
 // Create Express server
 const expressApp = express();
