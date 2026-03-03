@@ -259,11 +259,7 @@ bot.action(/approve:(.+):(.+):(.+)/, async (ctx) => {
         
     const userDoc = userDocSnap;
     const userData = userDocSnap.data();
-        
-    // Check if email is verified
-    if (!userData.emailVerified) {
-      return ctx.reply('User email not verified.');
-    }
+      
         
     const expiresAt = days === -1 ? null : new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
         
@@ -352,10 +348,6 @@ bot.on('text', async (ctx) => {
     const userDoc = userDocSnap;
     const userData = userDocSnap.data();
         
-    // Check if email is verified
-    if (!userData.emailVerified) {
-      return ctx.reply('User email not verified.');
-    }
         
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
         
