@@ -1,5 +1,4 @@
-import { Telegraf, Markup } from 'telegraf';
-import session from 'telegraf/session';
+import { Telegraf, Markup, session } from 'telegraf';
 import express from 'express';
 import { initializeApp } from 'firebase/app';
 import { 
