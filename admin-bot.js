@@ -8,13 +8,27 @@ import {
   updateDoc,
   deleteDoc,
   collection,
+  query,
+  where,
   getDocs,
+  onSnapshot,
+  setDoc,
   addDoc
 } from 'firebase/firestore';
 
 // Get environment variables
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID;
+
+// Validate required environment variables on startup
+if (!BOT_TOKEN) {
+  console.error('FATAL: BOT_TOKEN environment variable is required');
+  process.exit(1);
+}
+if (!ADMIN_ID) {
+  console.error('FATAL: ADMIN_ID environment variable is required');
+  process.exit(1);
+}
 
 // Firebase config from environment variables
 const firebaseConfig = {
@@ -26,9 +40,16 @@ const firebaseConfig = {
   appId: process.env.FIREBASE_APP_ID
 };
 
-// Initialize everything
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+// Initialize everything with error handling
+let app, db;
+try {
+  app = initializeApp(firebaseConfig);
+  db = getFirestore(app);
+} catch (err) {
+  console.error('FATAL: Firebase initialization failed:', err);
+  process.exit(1);
+}
+
 const bot = new Telegraf(BOT_TOKEN);
 
 // Simple in-memory session storage
@@ -65,7 +86,7 @@ expressApp.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
 
-// ==================== BOT COMMANDS AND FUNCTIONS ====================
+// ==================== YOUR EXISTING BOT CODE STARTS HERE ====================
 
 // Check if user is admin
 function isAdmin(ctx) {
@@ -90,6 +111,8 @@ function formatUserData(userData) {
 `;
 }
 
+// ==================== HELPER FUNCTIONS ====================
+
 // Main menu
 const mainMenu = Markup.inlineKeyboard([
   [Markup.button.callback('📋 Pending Approvals', 'pending')],
@@ -105,7 +128,7 @@ function approvalButtons(email) {
     [Markup.button.callback('✅ 3 Months', `approve:${email}:premium:90`)],
     [Markup.button.callback('✅ Lifetime', `approve:${email}:lifetime:-1`)],
     [Markup.button.callback('✅ Custom (Days)', `custom:${email}`)],
-    [Markup.button.callback('❌ Reject', `reject:${email} `)],
+    [Markup.button.callback('❌ Reject', `reject:${email}`)],
     [Markup.button.callback('🔙 Back', 'pending')]
   ]);
 }
@@ -128,6 +151,8 @@ function userActionButtons(email) {
   ]);
 }
 
+// ==================== BOT COMMANDS ====================
+
 // Start command
 bot.start(async (ctx) => {
   if (!isAdmin(ctx)) {
@@ -135,7 +160,7 @@ bot.start(async (ctx) => {
   }
   
   ctx.reply(
-    '🔐 *Admin Panel - Redeem Bot*\n\n' +
+    '🔐 *Admin Panel - Redeem Bot V3*\n\n' +
     'Welcome Admin! Use the menu below to manage users.',
     { parse_mode: 'Markdown', ...mainMenu }
   );
@@ -251,11 +276,7 @@ bot.action(/approve:(.+):(.+):(.+)/, async (ctx) => {
         
     const userDoc = userDocSnap;
     const userData = userDocSnap.data();
-        
-    // Check if email is verified
-    if (!userData.emailVerified) {
-      return ctx.reply('User email not verified.');
-    }
+      
         
     const expiresAt = days === -1 ? null : new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
         
@@ -266,8 +287,8 @@ bot.action(/approve:(.+):(.+):(.+)/, async (ctx) => {
       licenseExpiresAt: expiresAt,
       licenseActivatedAt: new Date().toISOString(),
       approvedAt: new Date().toISOString(),
-      approvedBy: 'admin-bot',
-      deviceId: null // Clear device binding on approval
+      approvedBy: 'admin-bot'
+      // Note: deviceId is not cleared here - use unbind feature separately
     });
     
     // Remove from pending
@@ -344,10 +365,6 @@ bot.on('text', async (ctx) => {
     const userDoc = userDocSnap;
     const userData = userDocSnap.data();
         
-    // Check if email is verified
-    if (!userData.emailVerified) {
-      return ctx.reply('User email not verified.');
-    }
         
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
         
@@ -393,7 +410,7 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// Reject user with confirmation
+// Reject user - FIXED: Now moves to users collection with rejected status
 bot.action(/reject:(.+)/, async (ctx) => {
   if (!isAdmin(ctx)) return adminOnly(ctx);
   
@@ -461,7 +478,7 @@ bot.action(/confirm_reject:(.+)/, async (ctx) => {
   }
 });
 
-// All users with pagination
+// All users - FIXED: Now shows rejected users as well with pagination
 bot.action('users', async (ctx) => {
   if (!isAdmin(ctx)) return adminOnly(ctx);
   
@@ -631,7 +648,6 @@ bot.action(/manage:(.+)/, async (ctx) => {
       else if (!data.approved) status = '⏳ Pending Approval';
       
       const license = data.licenseActive ? '🟢 Active' : '🔴 Inactive';
-      const deviceStatus = data.deviceId ? `✅ Bound (Online)` : `❌ Not bound (Offline)`;
       
       ctx.editMessageText(
         `👤 *User Details*\n\n` +
@@ -641,8 +657,7 @@ bot.action(/manage:(.+)/, async (ctx) => {
         `📊 Status: ${status}\n` +
         `🔑 License: ${license}\n` +
         `📅 Expires: ${data.licenseExpiresAt ? new Date(data.licenseExpiresAt).toLocaleDateString() : 'N/A'}\n` +
-        `🔐 Device: ${deviceStatus}\n` +
-        `🔢 Device ID: \`${data.deviceId || 'None'}\``,
+        `🔐 Device ID: \`${data.deviceId || 'Not bound'}\``,
         { parse_mode: 'Markdown', ...userActionButtons(email) }
       );
     }
@@ -685,7 +700,7 @@ bot.action(/activate:(.+)/, async (ctx) => {
   }
 });
 
-// Deactivate license
+// Deactivate license - FIXED: Correct message
 bot.action(/deactivate:(.+)/, async (ctx) => {
   if (!isAdmin(ctx)) return adminOnly(ctx);
   
@@ -830,7 +845,7 @@ bot.action('menu', (ctx) => {
   if (!isAdmin(ctx)) return adminOnly(ctx);
   
   ctx.editMessageText(
-    '🔐 *Admin Panel - Redeem Bot*\n\n' +
+    '🔐 *Admin Panel - Redeem Bot V3*\n\n' +
     'Welcome Admin! Use the menu below to manage users.',
     { parse_mode: 'Markdown', ...mainMenu }
   );
@@ -871,7 +886,41 @@ bot.action('stats', async (ctx) => {
   }
 });
 
-// ==================== AUTO-EXPIRE CRON SYSTEM ====================
+// ==================== REAL-TIME NOTIFICATIONS ====================
+
+// Listen for new registrations
+function startNotifications() {
+  const q = collection(db, 'pendingApprovals');
+  
+  onSnapshot(q, (snapshot) => {
+    snapshot.docChanges().forEach((change) => {
+      if (change.type === 'added') {
+        const data = change.doc.data();
+        bot.telegram.sendMessage(
+          ADMIN_ID,
+          formatUserData(data) + '\n\nUse /pending to approve/reject.',
+          { parse_mode: 'Markdown', ...approvalButtons(data.email) }
+        ).catch(err => console.error('Failed to send notification:', err));
+      }
+    });
+  }, (err) => {
+    console.error('Snapshot listener error:', err);
+  });
+  
+  console.log('🔔 Notifications started');
+}
+
+// ==================== ERROR HANDLING ====================
+
+// Global error handler
+bot.catch((err, ctx) => {
+  console.error('Bot error:', err);
+  // Ignore "message not modified" errors
+  if (err.description && err.description.includes('message is not modified')) {
+    return;
+  }
+  ctx.reply('An error occurred. Please try again.').catch(() => {});
+});
 
 // Auto-expire cron system for licenses
 async function autoExpireLicenses() {
@@ -903,33 +952,45 @@ async function autoExpireLicenses() {
 }
 
 // Run auto-expire check every hour
-setInterval(autoExpireLicenses, 3600000); // 1 hour
+const expireInterval = setInterval(autoExpireLicenses, 3600000); // 1 hour
 
-// ==================== ERROR HANDLING ====================
-
-// Global error handler
-bot.catch((err, ctx) => {
-  console.error('Bot error:', err);
-  // Ignore "message not modified" errors
-  if (err.description && err.description.includes('message is not modified')) {
+// Keep-alive function to ping itself (for free tier)
+function keepAlive() {
+  const baseUrl = process.env.RENDER_EXTERNAL_URL;
+  if (!baseUrl) {
+    console.log('Keep alive skipped: RENDER_EXTERNAL_URL not set');
     return;
   }
-  ctx.reply('An error occurred. Please try again.').catch(() => {});
-});
+  fetch(baseUrl)
+    .then(res => console.log(`Keep alive ping: ${res.status}`))
+    .catch(err => console.log(`Keep alive error: ${err.message}`));
+}
 
-// ==================== WEBHOOK SETUP FOR RENDER ====================
+// Ping every 10 minutes to keep the service awake
+if (process.env.NODE_ENV === 'production') {
+  setInterval(keepAlive, 600000); // 10 minutes
+}
+
+// ==================== START BOT ====================
 
 // Use webhook instead of polling for Render free tier
-const webhookPath = `/bot${BOT_TOKEN}`;
-
-expressApp.use(bot.webhookCallback(webhookPath));
-
-bot.telegram.setWebhook(
-  `${process.env.RENDER_EXTERNAL_URL}${webhookPath}`
-);
+const webhookUrl = process.env.RENDER_EXTERNAL_URL;
+if (webhookUrl) {
+  const webhookPath = `/bot${BOT_TOKEN}`;
+  expressApp.use(bot.webhookCallback(webhookPath));
+  bot.telegram.setWebhook(`${webhookUrl}${webhookPath}`)
+    .then(() => console.log('Webhook set successfully'))
+    .catch(err => console.error('Failed to set webhook:', err));
+} else {
+  console.log('RENDER_EXTERNAL_URL not set, starting in polling mode');
+  bot.launch()
+    .then(() => console.log('Bot started in polling mode'))
+    .catch(err => console.error('Failed to start bot:', err));
+}
 
 console.log("🤖 Webhook Bot Started!");
+startNotifications();
 
-// Enable graceful stop
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+// Enable graceful stop with interval cleanup
+process.once('SIGINT', () => { clearInterval(expireInterval); bot.stop('SIGINT'); });
+process.once('SIGTERM', () => { clearInterval(expireInterval); bot.stop('SIGTERM'); });
