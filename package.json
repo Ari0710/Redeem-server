@@ -3,7 +3,7 @@
   "version": "3.2.0",
   "type": "module",
   "scripts": {
-    "start": "node render-telegram-admin-bot.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "telegraf": "^4.16.0",
