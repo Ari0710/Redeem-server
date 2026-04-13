@@ -86,7 +86,7 @@ expressApp.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
 
-// ==================== YOUR EXISTING BOT CODE STARTS HERE ====================
+// ==================== HELPER FUNCTIONS ====================
 
 // Check if user is admin
 function isAdmin(ctx) {
@@ -95,41 +95,39 @@ function isAdmin(ctx) {
 
 // Send admin-only message
 function adminOnly(ctx) {
-  ctx.reply('⛔ This command is for admin only.');
+  ctx.reply('This command is for admin only.');
 }
 
 // Format user data for display
 function formatUserData(userData) {
   return `
-👤 *New User Registration*
+*New User Registration*
 
-📝 Username: \`${userData.username}\`
-📛 Name: ${userData.name}
-📧 Email: \`${userData.email}\`
-🔑 Device ID: \`${userData.deviceId}\`
-📅 Registered: ${new Date(userData.createdAt).toLocaleString()}
+Username: \`${userData.username}\`
+Name: ${userData.name}
+Email: \`${userData.email}\`
+Device ID: \`${userData.deviceId}\`
+Registered: ${new Date(userData.createdAt).toLocaleString()}
 `;
 }
 
-// ==================== HELPER FUNCTIONS ====================
-
 // Main menu
 const mainMenu = Markup.inlineKeyboard([
-  [Markup.button.callback('📋 Pending Approvals', 'pending')],
-  [Markup.button.callback('👥 All Users', 'users')],
-  [Markup.button.callback('🔍 Search User', 'search')],
-  [Markup.button.callback('📊 Statistics', 'stats')]
+  [Markup.button.callback('Pending Approvals', 'pending')],
+  [Markup.button.callback('All Users', 'users')],
+  [Markup.button.callback('Search User', 'search')],
+  [Markup.button.callback('Statistics', 'stats')]
 ]);
 
 // Approve/Reject buttons with plan selection
 function approvalButtons(email) {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('✅ 1 Month', `approve:${email}:basic:30`)],
-    [Markup.button.callback('✅ 3 Months', `approve:${email}:premium:90`)],
-    [Markup.button.callback('✅ Lifetime', `approve:${email}:lifetime:-1`)],
-    [Markup.button.callback('✅ Custom (Days)', `custom:${email}`)],
-    [Markup.button.callback('❌ Reject', `reject:${email}`)],
-    [Markup.button.callback('🔙 Back', 'pending')]
+    [Markup.button.callback('1 Month', `approve:${email}:basic:30`)],
+    [Markup.button.callback('3 Months', `approve:${email}:premium:90`)],
+    [Markup.button.callback('Lifetime', `approve:${email}:lifetime:-1`)],
+    [Markup.button.callback('Custom (Days)', `custom:${email}`)],
+    [Markup.button.callback('Reject', `reject:${email}`)],
+    [Markup.button.callback('Back', 'pending')]
   ]);
 }
 
@@ -137,17 +135,17 @@ function approvalButtons(email) {
 function userActionButtons(email) {
   return Markup.inlineKeyboard([
     [
-      Markup.button.callback('✅ Activate', `activate:${email}`),
-      Markup.button.callback('🛑 Deactivate', `deactivate:${email}`)
+      Markup.button.callback('Activate', `activate:${email}`),
+      Markup.button.callback('Deactivate', `deactivate:${email}`)
     ],
     [
-      Markup.button.callback('🔑 Reset Password', `reset:${email}`),
-      Markup.button.callback('⏱️ Change Validity', `validity:${email}`)
+      Markup.button.callback('Reset Password', `reset:${email}`),
+      Markup.button.callback('Change Validity', `validity:${email}`)
     ],
     [
-      Markup.button.callback('🔓 Unbind Device', `unbind:${email}`)
+      Markup.button.callback('Unbind Device', `unbind:${email}`)
     ],
-    [Markup.button.callback('🔙 Back', 'users')]
+    [Markup.button.callback('Back', 'users')]
   ]);
 }
 
@@ -160,7 +158,7 @@ bot.start(async (ctx) => {
   }
   
   ctx.reply(
-    '🔐 *Admin Panel - Redeem Bot V3*\n\n' +
+    '*Admin Panel - Redeem Bot V3*\n\n' +
     'Welcome Admin! Use the menu below to manage users.',
     { parse_mode: 'Markdown', ...mainMenu }
   );
@@ -205,12 +203,12 @@ bot.action('pending', async (ctx) => {
     let text;
     
     if (snapshot.empty) {
-      text = '📋 *Pending Approvals*\n\n_No pending approvals._';
+      text = '*Pending Approvals*\n\n_No pending approvals._';
     } else {
-      text = '📋 *Pending Approvals*\n\n';
+      text = '*Pending Approvals*\n\n';
       snapshot.forEach((doc) => {
         const data = doc.data();
-        text += `• ${data.username} (${data.email})\n`;
+        text += `- ${data.username} (${data.email})\n`;
         buttons.push([Markup.button.callback(
           `View: ${data.username}`,
           `view:${data.email}`
@@ -218,14 +216,13 @@ bot.action('pending', async (ctx) => {
       });
     }
     
-    buttons.push([Markup.button.callback('🔙 Back', 'menu')]);
+    buttons.push([Markup.button.callback('Back', 'menu')]);
     
     await ctx.editMessageText(text, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard(buttons)
     });
   } catch (error) {
-    // Ignore "message not modified" error
     if (error && error.description && error.description.includes('message is not modified')) {
       return;
     }
@@ -266,7 +263,6 @@ bot.action(/approve:(.+):(.+):(.+)/, async (ctx) => {
   const days = parseInt(ctx.match[3]);
   
   try {
-    // Get user by email (using email as document ID)
     const userDocRef = doc(db, 'users', email);
     const userDocSnap = await getDoc(userDocRef);
         
@@ -275,9 +271,7 @@ bot.action(/approve:(.+):(.+):(.+)/, async (ctx) => {
     }
         
     const userDoc = userDocSnap;
-    const userData = userDocSnap.data();
       
-        
     const expiresAt = days === -1 ? null : new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
         
     await updateDoc(doc(db, 'users', userDoc.id), {
@@ -288,13 +282,10 @@ bot.action(/approve:(.+):(.+):(.+)/, async (ctx) => {
       licenseActivatedAt: new Date().toISOString(),
       approvedAt: new Date().toISOString(),
       approvedBy: 'admin-bot'
-      // Note: deviceId is not cleared here - use unbind feature separately
     });
     
-    // Remove from pending
     await deleteDoc(doc(db, 'pendingApprovals', email));
     
-    // Log admin action
     await addDoc(collection(db, 'adminLogs'), {
       action: 'approve',
       email,
@@ -308,7 +299,7 @@ bot.action(/approve:(.+):(.+):(.+)/, async (ctx) => {
     const validityText = days === -1 ? 'Lifetime' : `${days} days`;
     
     ctx.editMessageText(
-      `✅ *User Approved*\n\n` +
+      `*User Approved*\n\n` +
       `Email: \`${email}\`\n` +
       `Plan: ${planType.charAt(0).toUpperCase() + planType.slice(1)}\n` +
       `Validity: ${validityText}`,
@@ -325,7 +316,6 @@ bot.action(/custom:(.+)/, async (ctx) => {
   
   const email = ctx.match[1];
   
-  // Store email in session for next message
   if (!ctx.session) {
     ctx.session = {};
   }
@@ -336,7 +326,7 @@ bot.action(/custom:(.+)/, async (ctx) => {
     { 
       parse_mode: 'Markdown',
       reply_markup: Markup.inlineKeyboard([
-        [Markup.button.callback('🔙 Cancel', 'pending')]
+        [Markup.button.callback('Cancel', 'pending')]
       ])
     }
   );
@@ -354,7 +344,6 @@ bot.on('text', async (ctx) => {
   }
   
   try {
-    // Get user by email (using email as document ID)
     const userDocRef = doc(db, 'users', email);
     const userDocSnap = await getDoc(userDocRef);
         
@@ -363,8 +352,6 @@ bot.on('text', async (ctx) => {
     }
         
     const userDoc = userDocSnap;
-    const userData = userDocSnap.data();
-        
         
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
         
@@ -376,13 +363,10 @@ bot.on('text', async (ctx) => {
       licenseActivatedAt: new Date().toISOString(),
       approvedAt: new Date().toISOString(),
       approvedBy: 'admin-bot'
-      // Note: deviceId is not cleared here - use unbind feature separately
     });
     
-    // Remove from pending
     await deleteDoc(doc(db, 'pendingApprovals', email));
     
-    // Log admin action
     await addDoc(collection(db, 'adminLogs'), {
       action: 'approve_custom',
       email,
@@ -394,14 +378,13 @@ bot.on('text', async (ctx) => {
     });
     
     ctx.reply(
-      `✅ *User Approved*\n\n` +
+      `*User Approved*\n\n` +
       `Email: \`${email}\`\n` +
       `Plan: Custom\n` +
       `Validity: ${days} days`,
       { parse_mode: 'Markdown', ...mainMenu }
     );
     
-    // Clear session
     if (ctx.session) {
       delete ctx.session.customApproveEmail;
     }
@@ -410,20 +393,19 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// Reject user - FIXED: Now moves to users collection with rejected status
+// Reject user
 bot.action(/reject:(.+)/, async (ctx) => {
   if (!isAdmin(ctx)) return adminOnly(ctx);
   
   const email = ctx.match[1];
   
-  // Show confirmation for reject action
   ctx.editMessageText(
-    `⚠️ *Confirm Action*\n\nAre you sure you want to reject this user?\nEmail: \`${email}\`\n\nThis action cannot be undone easily.`,
+    `*Confirm Action*\n\nAre you sure you want to reject this user?\nEmail: \`${email}\`\n\nThis action cannot be undone easily.`,
     { 
       parse_mode: 'Markdown', 
       ...Markup.inlineKeyboard([
-        [Markup.button.callback('✅ Yes, Reject', `confirm_reject:${email}`)],
-        [Markup.button.callback('❌ Cancel', 'pending')]
+        [Markup.button.callback('Yes, Reject', `confirm_reject:${email}`)],
+        [Markup.button.callback('Cancel', 'pending')]
       ])
     }
   );
@@ -436,14 +418,12 @@ bot.action(/confirm_reject:(.+)/, async (ctx) => {
   const email = ctx.match[1];
   
   try {
-    // Get user data from pending approvals
     const pendingDocRef = doc(db, 'pendingApprovals', email);
     const pendingDocSnap = await getDoc(pendingDocRef);
     
     if (pendingDocSnap.exists()) {
       const userData = pendingDocSnap.data();
       
-      // Move user to users collection with rejected status
       await setDoc(doc(db, 'users', pendingDocSnap.id), {
         ...userData,
         approved: false,
@@ -454,10 +434,8 @@ bot.action(/confirm_reject:(.+)/, async (ctx) => {
         rejectedBy: ctx.from.id.toString()
       });
       
-      // Remove from pending approvals
       await deleteDoc(pendingDocRef);
       
-      // Log admin action
       await addDoc(collection(db, 'adminLogs'), {
         action: 'reject',
         email,
@@ -467,7 +445,7 @@ bot.action(/confirm_reject:(.+)/, async (ctx) => {
       });
       
       ctx.editMessageText(
-        `❌ *User Rejected*\n\nEmail: \`${email}\``,
+        `*User Rejected*\n\nEmail: \`${email}\``,
         { parse_mode: 'Markdown', ...mainMenu }
       );
     } else {
@@ -478,16 +456,14 @@ bot.action(/confirm_reject:(.+)/, async (ctx) => {
   }
 });
 
-// All users - FIXED: Now shows rejected users as well with pagination
+// All users with pagination
 bot.action('users', async (ctx) => {
   if (!isAdmin(ctx)) return adminOnly(ctx);
   
-  // Initialize session if not present
   if (!ctx.session) {
     ctx.session = {};
   }
   
-  // Set default page to 0 if not set
   if (typeof ctx.session.userPage !== 'number') {
     ctx.session.userPage = 0;
   }
@@ -497,59 +473,54 @@ bot.action('users', async (ctx) => {
     
     if (snapshot.empty) {
       return ctx.editMessageText(
-        '👥 *All Users*\n\nNo users found.',
+        '*All Users*\n\nNo users found.',
         { parse_mode: 'Markdown', ...mainMenu }
       );
     }
     
-    // Convert to array and sort for consistent pagination
     const allUsers = snapshot.docs.map(doc => ({
       id: doc.id,
       data: doc.data()
     })).sort((a, b) => a.data.username.localeCompare(b.data.username));
     
-    // Pagination constants
     const USERS_PER_PAGE = 10;
     const totalPages = Math.ceil(allUsers.length / USERS_PER_PAGE);
     const currentPage = ctx.session.userPage;
     
-    // Calculate start and end indices
     const startIndex = currentPage * USERS_PER_PAGE;
     const endIndex = Math.min(startIndex + USERS_PER_PAGE, allUsers.length);
     const usersToShow = allUsers.slice(startIndex, endIndex);
     
-    // Build message text
-    let text = `👥 *All Users* (Page ${currentPage + 1}/${totalPages})\n\n`;
+    let text = `*All Users* (Page ${currentPage + 1}/${totalPages})\n\n`;
     const buttons = [];
     
     usersToShow.forEach(user => {
       const data = user.data;
-      let status = '❓'; // Unknown status
-      if (data.approved && data.licenseActive) status = '✅'; // Active
-      else if (data.approved && !data.licenseActive) status = '⏸️'; // Approved but inactive
-      else if (data.licenseType === 'rejected') status = '❌'; // Rejected
-      else if (!data.approved) status = '⏳'; // Pending approval
+      let status = '?';
+      if (data.approved && data.licenseActive) status = 'Active';
+      else if (data.approved && !data.licenseActive) status = 'Inactive';
+      else if (data.licenseType === 'rejected') status = 'Rejected';
+      else if (!data.approved) status = 'Pending';
       
-      text += `${status} ${data.username} (${data.email})\n`;
+      text += `[${status}] ${data.username} (${data.email})\n`;
       buttons.push([Markup.button.callback(
         `Manage: ${data.username}`,
         `manage:${data.email}`
       )]);
     });
     
-    // Pagination buttons
     const paginationButtons = [];
     
     if (currentPage > 0) {
-      paginationButtons.push(Markup.button.callback('⬅️ Previous', 'prev_users'));
+      paginationButtons.push(Markup.button.callback('Previous', 'prev_users'));
     }
     
     if (endIndex < allUsers.length) {
-      paginationButtons.push(Markup.button.callback('Next ➡️', 'next_users'));
+      paginationButtons.push(Markup.button.callback('Next', 'next_users'));
     }
     
     buttons.push(paginationButtons);
-    buttons.push([Markup.button.callback('🔙 Back', 'menu')]);
+    buttons.push([Markup.button.callback('Back', 'menu')]);
     
     ctx.editMessageText(text, {
       parse_mode: 'Markdown',
@@ -564,7 +535,6 @@ bot.action('users', async (ctx) => {
 bot.action('prev_users', async (ctx) => {
   if (!isAdmin(ctx)) return adminOnly(ctx);
   
-  // Initialize session if not present
   if (!ctx.session) {
     ctx.session = {};
   }
@@ -577,7 +547,6 @@ bot.action('prev_users', async (ctx) => {
     ctx.session.userPage--;
   }
   
-  // Refresh the users list by calling the users action again
   await ctx.answerCbQuery();
   await bot.handleUpdate({
     update_id: Date.now(),
@@ -595,7 +564,6 @@ bot.action('prev_users', async (ctx) => {
 bot.action('next_users', async (ctx) => {
   if (!isAdmin(ctx)) return adminOnly(ctx);
   
-  // Initialize session if not present
   if (!ctx.session) {
     ctx.session = {};
   }
@@ -604,7 +572,6 @@ bot.action('next_users', async (ctx) => {
     ctx.session.userPage = 0;
   }
   
-  // Get total users to calculate max pages
   const snapshot = await getDocs(collection(db, 'users'));
   const totalUsers = snapshot.size;
   const USERS_PER_PAGE = 10;
@@ -614,7 +581,6 @@ bot.action('next_users', async (ctx) => {
     ctx.session.userPage++;
   }
   
-  // Refresh the users list by calling the users action again
   await ctx.answerCbQuery();
   await bot.handleUpdate({
     update_id: Date.now(),
@@ -641,23 +607,23 @@ bot.action(/manage:(.+)/, async (ctx) => {
     if (userDocSnap.exists()) {
       const data = userDocSnap.data();
       
-      let status = '❓';
-      if (data.approved && data.licenseActive) status = '✅ Approved & Active';
-      else if (data.approved && !data.licenseActive) status = '⏸️ Approved & Inactive';
-      else if (data.licenseType === 'rejected') status = '❌ Rejected';
-      else if (!data.approved) status = '⏳ Pending Approval';
+      let status = 'Unknown';
+      if (data.approved && data.licenseActive) status = 'Approved & Active';
+      else if (data.approved && !data.licenseActive) status = 'Approved & Inactive';
+      else if (data.licenseType === 'rejected') status = 'Rejected';
+      else if (!data.approved) status = 'Pending Approval';
       
-      const license = data.licenseActive ? '🟢 Active' : '🔴 Inactive';
+      const license = data.licenseActive ? 'Active' : 'Inactive';
       
       ctx.editMessageText(
-        `👤 *User Details*\n\n` +
-        `📝 Username: ${data.username}\n` +
-        `📛 Name: ${data.name}\n` +
-        `📧 Email: \`${data.email}\`\n` +
-        `📊 Status: ${status}\n` +
-        `🔑 License: ${license}\n` +
-        `📅 Expires: ${data.licenseExpiresAt ? new Date(data.licenseExpiresAt).toLocaleDateString() : 'N/A'}\n` +
-        `🔐 Device ID: \`${data.deviceId || 'Not bound'}\``,
+        `*User Details*\n\n` +
+        `Username: ${data.username}\n` +
+        `Name: ${data.name}\n` +
+        `Email: \`${data.email}\`\n` +
+        `Status: ${status}\n` +
+        `License: ${license}\n` +
+        `Expires: ${data.licenseExpiresAt ? new Date(data.licenseExpiresAt).toLocaleDateString() : 'N/A'}\n` +
+        `Device ID: \`${data.deviceId || 'Not bound'}\``,
         { parse_mode: 'Markdown', ...userActionButtons(email) }
       );
     }
@@ -678,13 +644,11 @@ bot.action(/activate:(.+)/, async (ctx) => {
     
     if (userDocSnap.exists()) {
       await updateDoc(doc(db, 'users', userDocSnap.id), {
-        approved: true, // Approve the user
+        approved: true,
         licenseActive: true,
         licenseExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-        // Note: deviceId is not cleared here - use unbind feature separately
       });
       
-      // Log admin action
       await addDoc(collection(db, 'adminLogs'), {
         action: 'activate',
         email,
@@ -693,14 +657,14 @@ bot.action(/activate:(.+)/, async (ctx) => {
         timestamp: new Date().toISOString()
       });
       
-      ctx.reply(`✅ License activated for ${email}`);
+      ctx.reply(`License activated for ${email}`);
     }
   } catch (error) {
     ctx.reply('Error: ' + error.message);
   }
 });
 
-// Deactivate license - FIXED: Correct message
+// Deactivate license
 bot.action(/deactivate:(.+)/, async (ctx) => {
   if (!isAdmin(ctx)) return adminOnly(ctx);
   
@@ -713,10 +677,8 @@ bot.action(/deactivate:(.+)/, async (ctx) => {
     if (userDocSnap.exists()) {
       await updateDoc(doc(db, 'users', userDocSnap.id), {
         licenseActive: false
-        // Note: deviceId is not cleared here - use unbind feature separately
       });
       
-      // Log admin action
       await addDoc(collection(db, 'adminLogs'), {
         action: 'deactivate',
         email,
@@ -725,7 +687,7 @@ bot.action(/deactivate:(.+)/, async (ctx) => {
         timestamp: new Date().toISOString()
       });
       
-      ctx.reply(`🛑 License deactivated for ${email}`);
+      ctx.reply(`License deactivated for ${email}`);
     }
   } catch (error) {
     ctx.reply('Error: ' + error.message);
@@ -747,7 +709,6 @@ bot.action(/unbind:(.+)/, async (ctx) => {
         deviceId: null
       });
       
-      // Log admin action
       await addDoc(collection(db, 'adminLogs'), {
         action: 'unbind',
         email,
@@ -756,7 +717,7 @@ bot.action(/unbind:(.+)/, async (ctx) => {
         timestamp: new Date().toISOString()
       });
       
-      ctx.reply(`🔓 Device unbound for ${email}`);
+      ctx.reply(`Device unbound for ${email}`);
     } else {
       ctx.reply('User not found.');
     }
@@ -772,12 +733,11 @@ bot.action(/reset:(.+)/, async (ctx) => {
   const email = ctx.match[1];
   const tempPassword = Math.random().toString(36).slice(-8);
   
-  // Note: In production, use Firebase Admin SDK to reset password
   ctx.reply(
-    `🔑 *Password Reset*\n\n` +
+    `*Password Reset*\n\n` +
     `Email: \`${email}\`\n` +
     `Temp Password: \`${tempPassword}\`\n\n` +
-    `⚠️ Note: You need to manually update this in Firebase Auth console.`,
+    `Note: You need to manually update this in Firebase Auth console.`,
     { parse_mode: 'Markdown' }
   );
 });
@@ -823,7 +783,6 @@ bot.action(/setvalid:(.+):(.+)/, async (ctx) => {
         licenseExpiresAt: expiresAt
       });
       
-      // Log admin action
       await addDoc(collection(db, 'adminLogs'), {
         action: 'change_validity',
         email,
@@ -833,7 +792,7 @@ bot.action(/setvalid:(.+):(.+)/, async (ctx) => {
         timestamp: new Date().toISOString()
       });
       
-      ctx.reply(`✅ Validity updated for ${email}: ${days === -1 ? 'Lifetime' : days + ' days'}`);
+      ctx.reply(`Validity updated for ${email}: ${days === -1 ? 'Lifetime' : days + ' days'}`);
     }
   } catch (error) {
     ctx.reply('Error: ' + error.message);
@@ -845,7 +804,7 @@ bot.action('menu', (ctx) => {
   if (!isAdmin(ctx)) return adminOnly(ctx);
   
   ctx.editMessageText(
-    '🔐 *Admin Panel - Redeem Bot V3*\n\n' +
+    '*Admin Panel - Redeem Bot V3*\n\n' +
     'Welcome Admin! Use the menu below to manage users.',
     { parse_mode: 'Markdown', ...mainMenu }
   );
@@ -873,12 +832,12 @@ bot.action('stats', async (ctx) => {
     });
     
     ctx.editMessageText(
-      `📊 *Statistics*\n\n` +
-      `👥 Total Users: ${total}\n` +
-      `✅ Approved: ${approved}\n` +
-      `🟢 Active Licenses: ${active}\n` +
-      `❌ Rejected: ${rejected}\n` +
-      `⏳ Pending Approvals: ${pendingSnapshot.size}`,
+      `*Statistics*\n\n` +
+      `Total Users: ${total}\n` +
+      `Approved: ${approved}\n` +
+      `Active Licenses: ${active}\n` +
+      `Rejected: ${rejected}\n` +
+      `Pending Approvals: ${pendingSnapshot.size}`,
       { parse_mode: 'Markdown', ...mainMenu }
     );
   } catch (error) {
@@ -888,7 +847,6 @@ bot.action('stats', async (ctx) => {
 
 // ==================== REAL-TIME NOTIFICATIONS ====================
 
-// Listen for new registrations
 function startNotifications() {
   const q = collection(db, 'pendingApprovals');
   
@@ -907,15 +865,13 @@ function startNotifications() {
     console.error('Snapshot listener error:', err);
   });
   
-  console.log('🔔 Notifications started');
+  console.log('Notifications started');
 }
 
 // ==================== ERROR HANDLING ====================
 
-// Global error handler
 bot.catch((err, ctx) => {
   console.error('Bot error:', err);
-  // Ignore "message not modified" errors
   if (err.description && err.description.includes('message is not modified')) {
     return;
   }
@@ -935,7 +891,6 @@ async function autoExpireLicenses() {
         const expiryDate = new Date(userData.licenseExpiresAt);
         
         if (expiryDate < now && userData.licenseActive) {
-          // Expire the license
           await updateDoc(doc(db, 'users', docSnap.id), {
             licenseActive: false
           });
@@ -952,13 +907,12 @@ async function autoExpireLicenses() {
 }
 
 // Run auto-expire check every hour
-const expireInterval = setInterval(autoExpireLicenses, 3600000); // 1 hour
+const expireInterval = setInterval(autoExpireLicenses, 3600000);
 
 // Keep-alive function to ping itself (for free tier)
 function keepAlive() {
   const baseUrl = process.env.RENDER_EXTERNAL_URL;
   if (!baseUrl) {
-    console.log('Keep alive skipped: RENDER_EXTERNAL_URL not set');
     return;
   }
   fetch(baseUrl)
@@ -968,12 +922,11 @@ function keepAlive() {
 
 // Ping every 10 minutes to keep the service awake
 if (process.env.NODE_ENV === 'production') {
-  setInterval(keepAlive, 600000); // 10 minutes
+  setInterval(keepAlive, 600000);
 }
 
 // ==================== START BOT ====================
 
-// Use webhook instead of polling for Render free tier
 const webhookUrl = process.env.RENDER_EXTERNAL_URL;
 if (webhookUrl) {
   const webhookPath = `/bot${BOT_TOKEN}`;
@@ -988,7 +941,7 @@ if (webhookUrl) {
     .catch(err => console.error('Failed to start bot:', err));
 }
 
-console.log("🤖 Webhook Bot Started!");
+console.log('Bot Started!');
 startNotifications();
 
 // Enable graceful stop with interval cleanup
