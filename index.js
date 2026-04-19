@@ -132,8 +132,8 @@ function approvalButtons(email) {
 }
 
 // User action buttons
-function userActionButtons(email) {
-  return Markup.inlineKeyboard([
+function userActionButtons(email, isBanned = false, mimicEnabled = true) {
+  const buttons = [
     [
       Markup.button.callback('Activate', `activate:${email}`),
       Markup.button.callback('Deactivate', `deactivate:${email}`)
@@ -144,9 +144,27 @@ function userActionButtons(email) {
     ],
     [
       Markup.button.callback('Unbind Device', `unbind:${email}`)
-    ],
-    [Markup.button.callback('Back', 'users')]
-  ]);
+    ]
+  ];
+  
+  // Add Mimic toggle button (treat undefined/null as true for backward compatibility)
+  const mimicAllowed = mimicEnabled !== false;
+  if (mimicAllowed) {
+    buttons.push([Markup.button.callback('🔇 Disable Mimic', `mimic_off:${email}`)]);
+  } else {
+    buttons.push([Markup.button.callback('🔊 Enable Mimic', `mimic_on:${email}`)]);
+  }
+  
+  // Add Ban/Unban button
+  if (isBanned) {
+    buttons.push([Markup.button.callback('✅ Unban User', `unban:${email}`)]);
+  } else {
+    buttons.push([Markup.button.callback('🚫 Ban User', `ban:${email}`)]);
+  }
+  
+  buttons.push([Markup.button.callback('Back', 'users')]);
+  
+  return Markup.inlineKeyboard(buttons);
 }
 
 // ==================== BOT COMMANDS ====================
@@ -178,6 +196,7 @@ bot.help((ctx) => {
 /approve <email> - Approve a user
 /deactivate <email> - Deactivate user
 /reset <email> - Reset user password
+/mimic <email> on|off - Toggle mimic mode for user
 /stats - View statistics
 
 *Features:*
@@ -186,7 +205,61 @@ bot.help((ctx) => {
 - Activate/deactivate licenses
 - Reset passwords
 - Change license validity
+- Enable/disable mimic mode per user
   `, { parse_mode: 'Markdown' });
+});
+
+// Mimic command - toggle mimic mode for a user
+bot.command('mimic', async (ctx) => {
+  if (!isAdmin(ctx)) return adminOnly(ctx);
+  
+  const args = ctx.message.text.split(' ').slice(1);
+  
+  if (args.length < 2) {
+    return ctx.reply(
+      'Usage: `/mimic <email> on|off`\n\n' +
+      'Examples:\n' +
+      '`/mimic user@example.com on` - Enable mimic mode\n' +
+      '`/mimic user@example.com off` - Disable mimic mode',
+      { parse_mode: 'Markdown' }
+    );
+  }
+  
+  const email = args[0];
+  const action = args[1].toLowerCase();
+  
+  if (!['on', 'off'].includes(action)) {
+    return ctx.reply('Invalid action. Use `on` or `off`.', { parse_mode: 'Markdown' });
+  }
+  
+  try {
+    const userDocRef = doc(db, 'users', email);
+    const userDocSnap = await getDoc(userDocRef);
+    
+    if (!userDocSnap.exists()) {
+      return ctx.reply('User not found.');
+    }
+    
+    const mimicEnabled = action === 'on';
+    
+    await updateDoc(doc(db, 'users', email), {
+      mimicEnabled: mimicEnabled
+    });
+    
+    await addDoc(collection(db, 'adminLogs'), {
+      action: mimicEnabled ? 'mimic_enable' : 'mimic_disable',
+      email,
+      adminId: ctx.from.id,
+      adminUsername: ctx.from.username || 'unknown',
+      timestamp: new Date().toISOString()
+    });
+    
+    const statusText = mimicEnabled ? '✅ enabled' : '🔇 disabled';
+    ctx.reply(`Mimic mode ${statusText} for \`${email}\`.`, { parse_mode: 'Markdown' });
+  } catch (error) {
+    console.error('Error toggling mimic mode:', error);
+    ctx.reply('Error: ' + error.message);
+  }
 });
 
 // ==================== CALLBACK HANDLERS ====================
@@ -608,12 +681,16 @@ bot.action(/manage:(.+)/, async (ctx) => {
       const data = userDocSnap.data();
       
       let status = 'Unknown';
-      if (data.approved && data.licenseActive) status = 'Approved & Active';
+      if (data.banned) status = 'BANNED';
+      else if (data.approved && data.licenseActive) status = 'Approved & Active';
       else if (data.approved && !data.licenseActive) status = 'Approved & Inactive';
       else if (data.licenseType === 'rejected') status = 'Rejected';
       else if (!data.approved) status = 'Pending Approval';
       
       const license = data.licenseActive ? 'Active' : 'Inactive';
+      
+      // Check mimic status (treat undefined/null as true for backward compatibility)
+      const mimicStatus = data.mimicEnabled !== false ? '✅ Enabled' : '❌ Disabled';
       
       ctx.editMessageText(
         `*User Details*\n\n` +
@@ -623,8 +700,10 @@ bot.action(/manage:(.+)/, async (ctx) => {
         `Status: ${status}\n` +
         `License: ${license}\n` +
         `Expires: ${data.licenseExpiresAt ? new Date(data.licenseExpiresAt).toLocaleDateString() : 'N/A'}\n` +
-        `Device ID: \`${data.deviceId || 'Not bound'}\``,
-        { parse_mode: 'Markdown', ...userActionButtons(email) }
+        `Device ID: \`${data.deviceId || 'Not bound'}\`\n` +
+        `Mimic Mode: ${mimicStatus}` +
+        (data.banned ? `\n\n⚠️ *BANNED* at ${data.bannedAt ? new Date(data.bannedAt).toLocaleString() : 'Unknown'}\nReason: ${data.bannedReason || 'No reason provided'}` : ''),
+        { parse_mode: 'Markdown', ...userActionButtons(email, data.banned === true, data.mimicEnabled) }
       );
     }
   } catch (error) {
@@ -799,6 +878,188 @@ bot.action(/setvalid:(.+):(.+)/, async (ctx) => {
   }
 });
 
+// Handle ban_user callback from login event notifications
+bot.action(/ban_user_(.+)/, async (ctx) => {
+  if (!isAdmin(ctx)) return adminOnly(ctx);
+  
+  const email = ctx.match[1];
+  
+  try {
+    const userDocRef = doc(db, 'users', email);
+    const userDocSnap = await getDoc(userDocRef);
+    
+    if (!userDocSnap.exists()) {
+      await ctx.answerCbQuery('User not found');
+      return ctx.reply('User not found.');
+    }
+    
+    await updateDoc(doc(db, 'users', email), {
+      licenseActive: false,
+      approved: false,
+      banned: true,
+      bannedAt: new Date().toISOString(),
+      bannedReason: 'Multi-device usage detected'
+    });
+    
+    await addDoc(collection(db, 'adminLogs'), {
+      action: 'ban',
+      email,
+      adminId: ctx.from.id,
+      adminUsername: ctx.from.username || 'unknown',
+      timestamp: new Date().toISOString()
+    });
+    
+    await ctx.answerCbQuery('User banned successfully');
+    await ctx.reply(`✅ User \`${email}\` has been banned.`, { parse_mode: 'Markdown' });
+  } catch (error) {
+    console.error('Error banning user:', error);
+    await ctx.answerCbQuery('Error banning user');
+    ctx.reply('Error: ' + error.message);
+  }
+});
+
+// Ban user from user management
+bot.action(/ban:(.+)/, async (ctx) => {
+  if (!isAdmin(ctx)) return adminOnly(ctx);
+  
+  const email = ctx.match[1];
+  
+  try {
+    const userDocRef = doc(db, 'users', email);
+    const userDocSnap = await getDoc(userDocRef);
+    
+    if (!userDocSnap.exists()) {
+      return ctx.reply('User not found.');
+    }
+    
+    await updateDoc(doc(db, 'users', email), {
+      licenseActive: false,
+      approved: false,
+      banned: true,
+      bannedAt: new Date().toISOString(),
+      bannedReason: 'Banned by admin'
+    });
+    
+    await addDoc(collection(db, 'adminLogs'), {
+      action: 'ban',
+      email,
+      adminId: ctx.from.id,
+      adminUsername: ctx.from.username || 'unknown',
+      timestamp: new Date().toISOString()
+    });
+    
+    ctx.reply(`✅ User \`${email}\` has been banned.`, { parse_mode: 'Markdown' });
+  } catch (error) {
+    console.error('Error banning user:', error);
+    ctx.reply('Error: ' + error.message);
+  }
+});
+
+// Unban user
+bot.action(/unban:(.+)/, async (ctx) => {
+  if (!isAdmin(ctx)) return adminOnly(ctx);
+  
+  const email = ctx.match[1];
+  
+  try {
+    const userDocRef = doc(db, 'users', email);
+    const userDocSnap = await getDoc(userDocRef);
+    
+    if (!userDocSnap.exists()) {
+      return ctx.reply('User not found.');
+    }
+    
+    await updateDoc(doc(db, 'users', email), {
+      banned: false,
+      bannedAt: null,
+      bannedReason: null,
+      unbannedAt: new Date().toISOString(),
+      unbannedBy: ctx.from.id.toString()
+    });
+    
+    await addDoc(collection(db, 'adminLogs'), {
+      action: 'unban',
+      email,
+      adminId: ctx.from.id,
+      adminUsername: ctx.from.username || 'unknown',
+      timestamp: new Date().toISOString()
+    });
+    
+    ctx.reply(`✅ User \`${email}\` has been unbanned.`, { parse_mode: 'Markdown' });
+  } catch (error) {
+    console.error('Error unbanning user:', error);
+    ctx.reply('Error: ' + error.message);
+  }
+});
+
+// Enable mimic mode for user
+bot.action(/mimic_on:(.+)/, async (ctx) => {
+  if (!isAdmin(ctx)) return adminOnly(ctx);
+  
+  const email = ctx.match[1];
+  
+  try {
+    const userDocRef = doc(db, 'users', email);
+    const userDocSnap = await getDoc(userDocRef);
+    
+    if (!userDocSnap.exists()) {
+      return ctx.reply('User not found.');
+    }
+    
+    await updateDoc(doc(db, 'users', email), {
+      mimicEnabled: true
+    });
+    
+    await addDoc(collection(db, 'adminLogs'), {
+      action: 'mimic_enable',
+      email,
+      adminId: ctx.from.id,
+      adminUsername: ctx.from.username || 'unknown',
+      timestamp: new Date().toISOString()
+    });
+    
+    await ctx.answerCbQuery('Mimic mode enabled');
+    ctx.reply(`✅ Mimic mode enabled for \`${email}\`.`, { parse_mode: 'Markdown' });
+  } catch (error) {
+    console.error('Error enabling mimic mode:', error);
+    ctx.reply('Error: ' + error.message);
+  }
+});
+
+// Disable mimic mode for user
+bot.action(/mimic_off:(.+)/, async (ctx) => {
+  if (!isAdmin(ctx)) return adminOnly(ctx);
+  
+  const email = ctx.match[1];
+  
+  try {
+    const userDocRef = doc(db, 'users', email);
+    const userDocSnap = await getDoc(userDocRef);
+    
+    if (!userDocSnap.exists()) {
+      return ctx.reply('User not found.');
+    }
+    
+    await updateDoc(doc(db, 'users', email), {
+      mimicEnabled: false
+    });
+    
+    await addDoc(collection(db, 'adminLogs'), {
+      action: 'mimic_disable',
+      email,
+      adminId: ctx.from.id,
+      adminUsername: ctx.from.username || 'unknown',
+      timestamp: new Date().toISOString()
+    });
+    
+    await ctx.answerCbQuery('Mimic mode disabled');
+    ctx.reply(`🔇 Mimic mode disabled for \`${email}\`.`, { parse_mode: 'Markdown' });
+  } catch (error) {
+    console.error('Error disabling mimic mode:', error);
+    ctx.reply('Error: ' + error.message);
+  }
+});
+
 // Back to menu
 bot.action('menu', (ctx) => {
   if (!isAdmin(ctx)) return adminOnly(ctx);
@@ -863,6 +1124,61 @@ function startNotifications() {
     });
   }, (err) => {
     console.error('Snapshot listener error:', err);
+  });
+  
+  // Listen for login events
+  const loginEventsRef = collection(db, 'loginEvents');
+  onSnapshot(loginEventsRef, (snapshot) => {
+    snapshot.docChanges().forEach(async (change) => {
+      if (change.type === 'added') {
+        const data = change.doc.data();
+        
+        if (data.multiDevice === true) {
+          // Multi-device login detected - send warning with ban button
+          const message = `⚠️ *MULTI-DEVICE LOGIN DETECTED*\n\n` +
+            `Email: ${data.email || 'Unknown'}\n` +
+            `Username: ${data.username || 'Unknown'}\n` +
+            `Time: ${data.loginAt || 'Unknown'}\n` +
+            `New Device: ${data.device || 'Unknown'}\n\n` +
+            `This user logged in from a SECOND device while already having an active session!`;
+          
+          try {
+            await bot.telegram.sendMessage(ADMIN_ID, message, {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [[
+                  { text: '🚫 Ban User', callback_data: `ban_user_${data.email}` }
+                ]]
+              }
+            });
+          } catch (err) {
+            console.error('Failed to send multi-device warning:', err.message);
+          }
+        } else {
+          // Normal login notification
+          const message = `🔑 *Login Detected*\n\n` +
+            `Email: ${data.email || 'Unknown'}\n` +
+            `Username: ${data.username || 'Unknown'}\n` +
+            `Time: ${data.loginAt || 'Unknown'}\n` +
+            `Device: ${data.device || 'Unknown'}`;
+          
+          try {
+            await bot.telegram.sendMessage(ADMIN_ID, message, { parse_mode: 'Markdown' });
+          } catch (err) {
+            console.error('Failed to send login notification:', err.message);
+          }
+        }
+        
+        // Optionally delete the event after processing to keep collection clean
+        try {
+          await deleteDoc(change.doc.ref);
+        } catch (err) {
+          console.error('Failed to delete login event:', err.message);
+        }
+      }
+    });
+  }, (err) => {
+    console.error('Login events listener error:', err);
   });
   
   console.log('Notifications started');
