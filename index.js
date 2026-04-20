@@ -242,17 +242,16 @@ bot.command('mimic', async (ctx) => {
     
     const mimicEnabled = action === 'on';
     
-    await updateDoc(doc(db, 'users', email), {
-      mimicEnabled: mimicEnabled
-    });
+    await setDoc(userDocRef, { mimicEnabled }, { merge: true });
     
-    await addDoc(collection(db, 'adminLogs'), {
+    // Log admin action (non-blocking)
+    addDoc(collection(db, 'adminLogs'), {
       action: mimicEnabled ? 'mimic_enable' : 'mimic_disable',
       email,
       adminId: ctx.from.id,
       adminUsername: ctx.from.username || 'unknown',
       timestamp: new Date().toISOString()
-    });
+    }).catch(e => console.error('Admin log write failed:', e.message));
     
     const statusText = mimicEnabled ? '✅ enabled' : '🔇 disabled';
     ctx.reply(`Mimic mode ${statusText} for \`${email}\`.`, { parse_mode: 'Markdown' });
@@ -1006,17 +1005,16 @@ bot.action(/mimic_on:(.+)/, async (ctx) => {
       return ctx.reply('User not found.');
     }
     
-    await updateDoc(doc(db, 'users', email), {
-      mimicEnabled: true
-    });
+    await setDoc(userDocRef, { mimicEnabled: true }, { merge: true });
     
-    await addDoc(collection(db, 'adminLogs'), {
+    // Log admin action (non-blocking)
+    addDoc(collection(db, 'adminLogs'), {
       action: 'mimic_enable',
       email,
       adminId: ctx.from.id,
       adminUsername: ctx.from.username || 'unknown',
       timestamp: new Date().toISOString()
-    });
+    }).catch(e => console.error('Admin log write failed:', e.message));
     
     await ctx.answerCbQuery('Mimic mode enabled');
     ctx.reply(`✅ Mimic mode enabled for \`${email}\`.`, { parse_mode: 'Markdown' });
@@ -1040,17 +1038,16 @@ bot.action(/mimic_off:(.+)/, async (ctx) => {
       return ctx.reply('User not found.');
     }
     
-    await updateDoc(doc(db, 'users', email), {
-      mimicEnabled: false
-    });
+    await setDoc(userDocRef, { mimicEnabled: false }, { merge: true });
     
-    await addDoc(collection(db, 'adminLogs'), {
+    // Log admin action (non-blocking)
+    addDoc(collection(db, 'adminLogs'), {
       action: 'mimic_disable',
       email,
       adminId: ctx.from.id,
       adminUsername: ctx.from.username || 'unknown',
       timestamp: new Date().toISOString()
-    });
+    }).catch(e => console.error('Admin log write failed:', e.message));
     
     await ctx.answerCbQuery('Mimic mode disabled');
     ctx.reply(`🔇 Mimic mode disabled for \`${email}\`.`, { parse_mode: 'Markdown' });
